@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carte IML — Cadastre</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  #map {
+    height: 100%;
+    width: 100%;
+  }
+  .leaflet-popup-content {
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .leaflet-popup-content b {
+    color: #1a5fb4;
+  }
+  .controle-cadastre {
+    background: white;
+    padding: 6px 10px;
+    border-radius: 4px;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+    font-size: 13px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .controle-cadastre label {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<script>
+// ============================================================
+// CONFIGURATION — adapte les noms de colonnes si besoin
+// ============================================================
+const COL_LAT   = "latitude";
+const COL_LON   = "longitude";
+const COL_TITRE = "Numero";              // colonne affichée comme titre dans la popup
+const COL_ADRESSE = "adresse_normalisee"; // colonne affichée comme adresse dans la popup
+const COL_COMMUNE = "Commune";
+
+// Centre par défaut (Pays Basque) si aucune donnée encore chargée
+const CENTRE_DEFAUT = [43.38, -1.55];
+const ZOOM_DEFAUT = 11;
+// ============================================================
+
+let map;
+let coucheCadastre;
+let cadastreActif = false;
+let marqueurs = {};       // { rowId: L.marker }
+let groupeMarqueurs;
+let table = null;         // référence à la table Grist sélectionnée
+
+function initCarte() {
+  map = L.map("map").setView(CENTRE_DEFAUT, ZOOM_DEFAUT);
+
+  // Fond de carte standard OpenStreetMap
+  const fondOSM = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 20,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+
+  // Couche cadastre (PCI vecteur) en superposition transparente — IGN/DGFiP
+  coucheCadastre = L.tileLayer(
+    "https://data.geopf.fr/wmts?layer=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&style=PCI%20vecteur&tilematrixset=PM_0_19&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image/png&TileMatrix={z}&TileCol={x}&TileRow={y}",
+    {
+      maxZoom: 20,
+      attribution: "Direction Générale des Finances Publiques (Cadastre)",
+      opacity: 0.7
+    }
+  );
+
+  groupeMarqueurs = L.layerGroup().addTo(map);
+
+  // Contrôle pour activer/désactiver le cadastre
+  const ControleCadastre = L.Control.extend({
+    options: { position: "topright" },
+    onAdd: function () {
+      const div = L.DomUtil.create("div", "controle-cadastre");
+      div.innerHTML = `
+        <label>
+          <input type="checkbox" id="toggle-cadastre">
+          Afficher le cadastre
+        </label>
+      `;
+      L.DomEvent.disableClickPropagation(div);
+      return div;
+    }
+  });
+  map.addControl(new ControleCadastre());
+
+  document.getElementById("toggle-cadastre").addEventListener("change", (e) => {
+    cadastreActif = e.target.checked;
+    if (cadastreActif) {
+      coucheCadastre.addTo(map);
+    } else {
+      map.removeLayer(coucheCadastre);
+    }
+  });
+}
+
+function construirePopup(record) {
+  const titre = record[COL_TITRE] || "Dossier";
+  const adresse = record[COL_ADRESSE] || record["Terrain"] || "";
+  const commune = record[COL_COMMUNE] || "";
+  return `
+    <b>${titre}</b><br>
+    ${adresse}<br>
+    <span style="color:#666">${commune}</span>
+  `;
+}
+
+function majMarqueurs(records, mappings) {
+  // Vide les marqueurs existants
+  groupeMarqueurs.clearLayers();
+  marqueurs = {};
+
+  const bounds = [];
+
+  records.forEach((record) => {
+    const lat = parseFloat(record[COL_LAT]);
+    const lon = parseFloat(record[COL_LON]);
+
+    if (!lat || !lon || isNaN(lat) || isNaN(lon)) return; // ignore les lignes sans coordonnées
+
+    const marker = L.marker([lat, lon]);
+    marker.bindPopup(construirePopup(record));
+
+    // Au clic sur le marqueur → sélectionne la ligne correspondante dans Grist
+    marker.on("click", () => {
+      grist.setCursorPos({rowId: record.id});
+      grist.setSelectedRows([record.id]);
+    });
+
+    marker.addTo(groupeMarqueurs);
+    marqueurs[record.id] = marker;
+    bounds.push([lat, lon]);
+  });
+
+  // Cadre la vue sur l'ensemble des points si on en a
+  if (bounds.length > 0) {
+    map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+  }
+}
+
+// ============================================================
+// Intégration API Grist
+// ============================================================
+grist.ready({
+  requiredAccess: "read table",
+  columns: [
+    { name: COL_LAT, title: "Latitude", type: "Numeric" },
+    { name: COL_LON, title: "Longitude", type: "Numeric" },
+    { name: COL_TITRE, title: "Titre", type: "Any", optional: true },
+    { name: COL_ADRESSE, title: "Adresse", type: "Any", optional: true },
+    { name: COL_COMMUNE, title: "Commune", type: "Any", optional: true },
+  ]
+});
+
+grist.onRecords((records, mappings) => {
+  if (!map) initCarte();
+  majMarqueurs(records, mappings);
+});
+
+// Permet à ce widget d'être choisi comme source de sélection ("Select By")
+// pour d'autres widgets (déjà le cas par défaut pour les widgets liés en lecture).
+grist.onOptions(() => {});
+
+window.addEventListener("load", () => {
+  if (!map) initCarte();
+});
+</script>
+
+</body>
+</html>
