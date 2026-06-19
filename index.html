@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Carte DIA — Cadastre</title>
+<title>Carte IML — Cadastre</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -44,6 +44,7 @@ const COL_TITRE   = "Numero";
 const COL_ADRESSE = "adresse_normalisee";
 const COL_COMMUNE = "Commune";
 const COL_TERRAIN = "Terrain";
+const COL_PRIX    = "Prix";
 
 const CENTRE_DEFAUT = [43.38, -1.55];
 const ZOOM_DEFAUT   = 11;
@@ -108,8 +109,19 @@ function initCarte() {
 function construirePopup(r) {
   const titre   = r[COL_TITRE]   || "Dossier";
   const adresse = r[COL_ADRESSE] || r[COL_TERRAIN] || "";
-  const commune = r[COL_PRIX] || "";
-  return `<b>${titre}</b><br>${adresse}<br><span class="popup-commune">${commune}</span>`;
+  const commune = r[COL_COMMUNE] || "";
+  const prixBrut = r[COL_PRIX];
+
+  let ligneprix = "";
+  if (prixBrut !== null && prixBrut !== undefined && prixBrut !== "") {
+    const prixNombre = parseFloat(String(prixBrut).replace(/\s/g, "").replace(",", "."));
+    const prixAffiche = !isNaN(prixNombre)
+      ? prixNombre.toLocaleString("fr-FR") + " €"
+      : prixBrut;
+    ligneprix = `<br><b>${prixAffiche}</b>`;
+  }
+
+  return `<b>${titre}</b><br>${adresse}<br><span class="popup-commune">${commune}</span>${ligneprix}`;
 }
 
 function appliquerSelectionVisuelle(rowId) {
