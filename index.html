@@ -29,23 +29,10 @@
     gap: 6px;
     margin: 0;
   }
-  #debug {
-    position: absolute;
-    bottom: 5px;
-    left: 5px;
-    background: rgba(255,255,255,0.9);
-    font-size: 11px;
-    padding: 3px 6px;
-    border-radius: 3px;
-    z-index: 1000;
-    max-width: 90%;
-    word-break: break-all;
-  }
 </style>
 </head>
 <body>
 <div id="map"></div>
-<div id="debug">init...</div>
 
 <script>
 // ============================================================
@@ -66,12 +53,6 @@ let map, groupeMarqueurs, coucheCadastre;
 let marqueurs = {};          // rowId → marker Leaflet
 let rowIdSelectionne = null;
 let derniersRecords = [];    // mémorise les records reçus
-
-const debugEl = document.getElementById("debug");
-function debug(msg) {
-  debugEl.textContent = msg;
-  console.log("[carte-debug]", msg);
-}
 
 // --- Icônes ---
 const iconNormal = L.icon({
@@ -156,11 +137,10 @@ function majMarqueurs(records) {
     marker.bindPopup(construirePopup(r));
 
     marker.on("click", () => {
-      debug("clic marqueur rowId=" + r.id);
       appliquerSelectionVisuelle(r.id);
       marker.openPopup();
       // Envoie la sélection à Grist (sens carte → tableau)
-      grist.setCursorPos({ rowId: r.id }).catch(e => debug("erreur setCursorPos: " + e));
+      grist.setCursorPos({ rowId: r.id });
     });
 
     marker.addTo(groupeMarqueurs);
@@ -171,7 +151,6 @@ function majMarqueurs(records) {
   if (bounds.length > 0 && rowIdSelectionne === null) {
     map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
   }
-  debug(records.length + " lignes, " + Object.keys(marqueurs).length + " marqueurs");
 }
 
 // ============================================================
@@ -182,7 +161,6 @@ grist.ready({ requiredAccess: "read table", allowSelectBy: true });
 // Reçoit TOUTES les lignes visibles (s'actualise à chaque changement de données)
 grist.onRecords(records => {
   if (!map) initCarte();
-  debug("onRecords: " + records.length + " enregistrements reçus");
   majMarqueurs(records);
 });
 
@@ -190,7 +168,6 @@ grist.onRecords(records => {
 grist.onRecord(record => {
   if (!map) initCarte();
   if (!record) return;
-  debug("onRecord reçu, id=" + record.id);
   appliquerSelectionVisuelle(record.id);
   if (marqueurs[record.id]) {
     const latlng = marqueurs[record.id].getLatLng();
