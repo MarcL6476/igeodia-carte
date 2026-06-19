@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Carte IML — Cadastre</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; width: 100%; }
+  #map { height: 100%; width: 100%; }
+  .leaflet-popup-content { font-size: 13px; line-height: 1.6; min-width: 180px; }
+  .leaflet-popup-content b { color: #1a5fb4; font-size: 14px; }
+  .popup-commune { color: #666; font-size: 12px; }
+  .controle-cadastre {
+    background: white;
+    padding: 6px 10px;
+    border-radius: 4px;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+    font-size: 13px;
+  }
+  .controle-cadastre label {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+  }
+  #debug {
+    position: absolute;
+    bottom: 5px;
+    left: 5px;
+    background: rgba(255,255,255,0.9);
+    font-size: 11px;
+    padding: 3px 6px;
+    border-radius: 3px;
+    z-index: 1000;
+    max-width: 90%;
+    word-break: break-all;
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="debug">init...</div>
+
+<script>
+// ============================================================
+// NOMS DES COLONNES — adapte si besoin
+// ============================================================
+const COL_LAT     = "latitude";
+const COL_LON     = "longitude";
+const COL_TITRE   = "Numero";
+const COL_ADRESSE = "adresse_normalisee";
+const COL_COMMUNE = "Commune";
+const COL_TERRAIN = "Terrain";
+
+const CENTRE_DEFAUT = [43.38, -1.55];
+const ZOOM_DEFAUT   = 11;
+// ============================================================
+
+let map, groupeMarqueurs, coucheCadastre;
+let marqueurs = {};          // rowId → marker Leaflet
+let rowIdSelectionne = null;
+let derniersRecords = [];    // mémorise les records reçus
+
+const debugEl = document.getElementById("debug");
+function debug(msg) {
+  debugEl.textContent = msg;
+  console.log("[carte-debug]", msg);
+}
+
+// --- Icônes ---
+const iconNormal = L.icon({
+  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34],
+  shadowSize: [41, 41]
+});
+
+const svgRouge = encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25 41">
+  <path d="M12.5 0C5.6 0 0 5.6 0 12.5c0 8.2 12.5 28.5 12.5 28.5S25 20.7 25 12.5C25 5.6 19.4 0 12.5 0z" fill="#e53e3e" stroke="#a00" stroke-width="1"/>
+  <circle cx="12.5" cy="12.5" r="5" fill="white"/>
+</svg>`);
+
+const iconRouge = L.icon({
+  iconUrl: `data:image/svg+xml,${svgRouge}`,
+  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34]
+});
+
+function initCarte() {
+  map = L.map("map").setView(CENTRE_DEFAUT, ZOOM_DEFAUT);
+
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 22,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(map);
+
+  coucheCadastre = L.tileLayer(
+    "https://data.geopf.fr/wmts?layer=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&style=PCI%20vecteur&tilematrixset=PM_0_19&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image/png&TileMatrix={z}&TileCol={x}&TileRow={y}",
+    { minZoom: 0, maxZoom: 22, maxNativeZoom: 19, attribution: "Cadastre © DGFiP", opacity: 0.75 }
+  );
+
+  groupeMarqueurs = L.layerGroup().addTo(map);
+
+  const ControleCadastre = L.Control.extend({
+    options: { position: "topright" },
+    onAdd() {
+      const div = L.DomUtil.create("div", "controle-cadastre");
+      div.innerHTML = `<label><input type="checkbox" id="toggle-cadastre"> Cadastre</label>`;
+      L.DomEvent.disableClickPropagation(div);
+      return div;
+    }
+  });
+  map.addControl(new ControleCadastre());
+
+  document.getElementById("toggle-cadastre").addEventListener("change", e => {
+    if (e.target.checked) coucheCadastre.addTo(map);
+    else map.removeLayer(coucheCadastre);
+  });
+}
+
+function construirePopup(r) {
+  const titre   = r[COL_TITRE]   || "Dossier";
+  const adresse = r[COL_ADRESSE] || r[COL_TERRAIN] || "";
+  const commune = r[COL_COMMUNE] || "";
+  return `<b>${titre}</b><br>${adresse}<br><span class="popup-commune">${commune}</span>`;
+}
+
+function appliquerSelectionVisuelle(rowId) {
+  // Remet TOUS les marqueurs en bleu d'abord (sécurité, évite les doublons rouges)
+  Object.values(marqueurs).forEach(m => m.setIcon(iconNormal));
+  rowIdSelectionne = rowId;
+  if (rowId && marqueurs[rowId]) {
+    marqueurs[rowId].setIcon(iconRouge);
+  }
+}
+
+function majMarqueurs(records) {
+  derniersRecords = records;
+  groupeMarqueurs.clearLayers();
+  marqueurs = {};
+  const bounds = [];
+
+  records.forEach(r => {
+    const lat = parseFloat(r[COL_LAT]);
+    const lon = parseFloat(r[COL_LON]);
+    if (!lat || !lon || isNaN(lat) || isNaN(lon)) return;
+
+    const estSelectionne = (r.id === rowIdSelectionne);
+    const marker = L.marker([lat, lon], { icon: estSelectionne ? iconRouge : iconNormal });
+    marker.bindPopup(construirePopup(r));
+
+    marker.on("click", () => {
+      debug("clic marqueur rowId=" + r.id);
+      appliquerSelectionVisuelle(r.id);
+      marker.openPopup();
+      // Envoie la sélection à Grist (sens carte → tableau)
+      grist.setCursorPos({ rowId: r.id }).catch(e => debug("erreur setCursorPos: " + e));
+    });
+
+    marker.addTo(groupeMarqueurs);
+    marqueurs[r.id] = marker;
+    bounds.push([lat, lon]);
+  });
+
+  if (bounds.length > 0 && rowIdSelectionne === null) {
+    map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+  }
+  debug(records.length + " lignes, " + Object.keys(marqueurs).length + " marqueurs");
+}
+
+// ============================================================
+// API Grist
+// ============================================================
+grist.ready({ requiredAccess: "read table" });
+
+// Reçoit TOUTES les lignes visibles (s'actualise à chaque changement de données)
+grist.onRecords(records => {
+  if (!map) initCarte();
+  debug("onRecords: " + records.length + " enregistrements reçus");
+  majMarqueurs(records);
+});
+
+// Reçoit la ligne actuellement sélectionnée/curseur dans le tableau (sens tableau → carte)
+grist.onRecord(record => {
+  if (!map) initCarte();
+  if (!record) return;
+  debug("onRecord reçu, id=" + record.id);
+  appliquerSelectionVisuelle(record.id);
+  if (marqueurs[record.id]) {
+    const latlng = marqueurs[record.id].getLatLng();
+    map.setView(latlng, Math.max(map.getZoom(), 15));
+    marqueurs[record.id].openPopup();
+  }
+});
+
+window.addEventListener("load", () => { if (!map) initCarte(); });
+</script>
+</body>
+</html>
