@@ -108,7 +108,7 @@ function initCarte() {
 function construirePopup(r) {
   const titre   = r[COL_TITRE]   || "Dossier";
   const adresse = r[COL_ADRESSE] || r[COL_TERRAIN] || "";
-  const commune = r[COL_COMMUNE] || "";
+  const commune = r[COL_PRIX] || "";
   return `<b>${titre}</b><br>${adresse}<br><span class="popup-commune">${commune}</span>`;
 }
 
