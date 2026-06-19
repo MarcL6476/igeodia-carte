@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Carte IML — Cadastre</title>
+<title>Carte DIA — Cadastre</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -177,7 +177,7 @@ function majMarqueurs(records) {
 // ============================================================
 // API Grist
 // ============================================================
-grist.ready({ requiredAccess: "read table" });
+grist.ready({ requiredAccess: "read table", allowSelectBy: true });
 
 // Reçoit TOUTES les lignes visibles (s'actualise à chaque changement de données)
 grist.onRecords(records => {
