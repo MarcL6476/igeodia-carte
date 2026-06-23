@@ -109,6 +109,10 @@ function initCarte() {
           layer.bindPopup("<b>ZAD Iraty</b>");
         }
       }).addTo(coucheZAD);
+      // Si la couche était déjà cochée/active pendant le chargement, on remet les marqueurs au-dessus
+      if (map.hasLayer(coucheZAD) && groupeMarqueurs) {
+        groupeMarqueurs.bringToFront();
+      }
     })
     .catch(err => console.error("Erreur chargement ZAD_IRATY.geojson :", err));
 
@@ -134,8 +138,12 @@ function initCarte() {
   });
 
   document.getElementById("toggle-zad").addEventListener("change", e => {
-    if (e.target.checked) coucheZAD.addTo(map);
-    else map.removeLayer(coucheZAD);
+    if (e.target.checked) {
+      coucheZAD.addTo(map);
+      groupeMarqueurs.bringToFront(); // garantit que les marqueurs restent cliquables au-dessus du polygone
+    } else {
+      map.removeLayer(coucheZAD);
+    }
   });
 }
 
@@ -196,6 +204,11 @@ function majMarqueurs(records) {
 
   if (bounds.length > 0 && rowIdSelectionne === null) {
     map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+  }
+
+  // Sécurité : si la couche ZAD est active, les marqueurs doivent rester cliquables au-dessus
+  if (coucheZAD && map.hasLayer(coucheZAD)) {
+    groupeMarqueurs.bringToFront();
   }
 }
 
