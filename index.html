@@ -33,6 +33,18 @@
     margin: 0;
     white-space: nowrap;
   }
+  .label-zad {
+    color: #5a2d7a;
+    font-weight: 600;
+    font-size: 13px;
+    text-shadow:
+      -1px -1px 0 #fff, 1px -1px 0 #fff,
+      -1px  1px 0 #fff, 1px  1px 0 #fff,
+       0px  1px 0 #fff, 0px -1px 0 #fff,
+       1px  0px 0 #fff, -1px 0px 0 #fff;
+    white-space: nowrap;
+    pointer-events: none; /* le label ne capte jamais de clic, même sans interactive:false sur le marker */
+  }
 </style>
 </head>
 <body>
@@ -98,21 +110,26 @@ function initCarte() {
   fetch("ZAD_IRATY.geojson")
     .then(res => res.json())
     .then(geojson => {
-      L.geoJSON(geojson, {
+      const calqueGeoJSON = L.geoJSON(geojson, {
         style: {
           color: "#7a3ea1",       // contour violet pour bien distinguer du cadastre/marqueurs
           weight: 2,
           fillColor: "#7a3ea1",
           fillOpacity: 0.15
         },
-        onEachFeature: (feature, layer) => {
-          layer.bindPopup("<b>ZAD Iraty</b>");
-        }
+        interactive: false  // le polygone ne capte plus les clics, qui passent directement aux marqueurs
       }).addTo(coucheZAD);
-      // Si la couche était déjà cochée/active pendant le chargement, on remet les marqueurs au-dessus
-      if (map.hasLayer(coucheZAD) && groupeMarqueurs) {
-        groupeMarqueurs.bringToFront();
-      }
+
+      // Ajoute un libellé texte centré sur chaque polygone (non interactif, ne bloque aucun clic)
+      calqueGeoJSON.eachLayer(layer => {
+        const centre = layer.getBounds().getCenter();
+        const labelIcon = L.divIcon({
+          className: "label-zad",
+          html: "ZAD Iraty",
+          iconSize: null // taille automatique selon le contenu
+        });
+        L.marker(centre, { icon: labelIcon, interactive: false }).addTo(coucheZAD);
+      });
     })
     .catch(err => console.error("Erreur chargement ZAD_IRATY.geojson :", err));
 
@@ -138,12 +155,8 @@ function initCarte() {
   });
 
   document.getElementById("toggle-zad").addEventListener("change", e => {
-    if (e.target.checked) {
-      coucheZAD.addTo(map);
-      groupeMarqueurs.bringToFront(); // garantit que les marqueurs restent cliquables au-dessus du polygone
-    } else {
-      map.removeLayer(coucheZAD);
-    }
+    if (e.target.checked) coucheZAD.addTo(map);
+    else map.removeLayer(coucheZAD);
   });
 }
 
@@ -204,11 +217,6 @@ function majMarqueurs(records) {
 
   if (bounds.length > 0 && rowIdSelectionne === null) {
     map.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
-  }
-
-  // Sécurité : si la couche ZAD est active, les marqueurs doivent rester cliquables au-dessus
-  if (coucheZAD && map.hasLayer(coucheZAD)) {
-    groupeMarqueurs.bringToFront();
   }
 }
 
