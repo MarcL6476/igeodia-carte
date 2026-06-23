@@ -21,6 +21,9 @@
     border-radius: 4px;
     box-shadow: 0 1px 5px rgba(0,0,0,0.4);
     font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
   .controle-cadastre label {
     cursor: pointer;
@@ -28,6 +31,7 @@
     align-items: center;
     gap: 6px;
     margin: 0;
+    white-space: nowrap;
   }
 </style>
 </head>
@@ -50,7 +54,7 @@ const CENTRE_DEFAUT = [43.38, -1.55];
 const ZOOM_DEFAUT   = 11;
 // ============================================================
 
-let map, groupeMarqueurs, coucheCadastre;
+let map, groupeMarqueurs, coucheCadastre, coucheZAD;
 let marqueurs = {};          // rowId → marker Leaflet
 let rowIdSelectionne = null;
 let derniersRecords = [];    // mémorise les records reçus
@@ -89,13 +93,35 @@ function initCarte() {
     { minZoom: 0, maxZoom: 22, maxNativeZoom: 19, attribution: "Cadastre © DGFiP", opacity: 0.75 }
   );
 
+  // Couche personnalisée ZAD Iraty (polygones, fichier GeoJSON hébergé sur le même dépôt)
+  coucheZAD = L.layerGroup(); // contenant vide, rempli après chargement du fichier
+  fetch("ZAD_IRATY.geojson")
+    .then(res => res.json())
+    .then(geojson => {
+      L.geoJSON(geojson, {
+        style: {
+          color: "#7a3ea1",       // contour violet pour bien distinguer du cadastre/marqueurs
+          weight: 2,
+          fillColor: "#7a3ea1",
+          fillOpacity: 0.15
+        },
+        onEachFeature: (feature, layer) => {
+          layer.bindPopup("<b>ZAD Iraty</b>");
+        }
+      }).addTo(coucheZAD);
+    })
+    .catch(err => console.error("Erreur chargement ZAD_IRATY.geojson :", err));
+
   groupeMarqueurs = L.layerGroup().addTo(map);
 
   const ControleCadastre = L.Control.extend({
     options: { position: "topright" },
     onAdd() {
       const div = L.DomUtil.create("div", "controle-cadastre");
-      div.innerHTML = `<label><input type="checkbox" id="toggle-cadastre"> Cadastre</label>`;
+      div.innerHTML = `
+        <label><input type="checkbox" id="toggle-cadastre"> Cadastre</label>
+        <label><input type="checkbox" id="toggle-zad"> ZAD Iraty</label>
+      `;
       L.DomEvent.disableClickPropagation(div);
       return div;
     }
@@ -105,6 +131,11 @@ function initCarte() {
   document.getElementById("toggle-cadastre").addEventListener("change", e => {
     if (e.target.checked) coucheCadastre.addTo(map);
     else map.removeLayer(coucheCadastre);
+  });
+
+  document.getElementById("toggle-zad").addEventListener("change", e => {
+    if (e.target.checked) coucheZAD.addTo(map);
+    else map.removeLayer(coucheZAD);
   });
 }
 
