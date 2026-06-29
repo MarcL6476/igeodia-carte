@@ -1,0 +1,29 @@
+name: iGeoDIA vers Grist
+
+on:
+  schedule:
+    - cron: '17 2 * * *'  # 3h17 heure française (UTC+1) — creux de conso nationale (nucléaire ~100%) + décalé de l'heure pile pour éviter les délais GitHub
+  workflow_dispatch:       # permet de lancer manuellement
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installation Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Installation des bibliothèques
+        run: pip install requests beautifulsoup4 pandas openpyxl lxml
+
+      - name: Synchronisation iGeoDIA → Grist
+        env:
+          IGEODIA_LOGIN:    ${{ secrets.IGEODIA_LOGIN }}
+          IGEODIA_PASSWORD: ${{ secrets.IGEODIA_PASSWORD }}
+          GRIST_API_KEY:    ${{ secrets.GRIST_API_KEY }}
+          GRIST_DOC_ID:     ${{ secrets.GRIST_DOC_ID }}
+          GRIST_TABLE:      ${{ secrets.GRIST_TABLE }}
+        run: python igeodia_vers_grist.py
